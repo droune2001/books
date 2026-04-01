@@ -1,7 +1,20 @@
 <script setup>
 import BookCard from './BookCard.vue'
 
-defineProps(['books', 'viewMode'])
+defineProps({
+  books: {
+    type: Array,
+    default: () => []
+  },
+  deletingBookId: {
+    type: String,
+    default: ''
+  },
+  viewMode: {
+    type: String,
+    default: 'grid'
+  }
+})
 const emit = defineEmits(['edit-book', 'remove-book'])
 </script>
 
@@ -13,6 +26,7 @@ const emit = defineEmits(['edit-book', 'remove-book'])
         v-for="book in books" 
         :key="book.id" 
         :book="book" 
+        :is-deleting="deletingBookId === book.id"
         :view-mode="viewMode"
         @edit="emit('edit-book', book)"
         @remove="emit('remove-book', book.id)"

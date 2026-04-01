@@ -1,98 +1,30 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
 import BookForm from './components/BookForm.vue'
 import BookList from './components/BookList.vue'
+import { useLibrary } from './composables/useLibrary'
 
-const books = ref([])
-const loading = ref(true)
-const editingBook = ref(null)
-
-const authors = ref([])
-const series = ref([])
-
-const filters = ref({
-  author: '',
-  series: '',
-  language: '',
-  category: '',
-  type: ''
-})
-
-const sortCriteria = ref('endDate')
-const sortOrder = ref('desc')
-const viewMode = ref('grid') // 'grid' or 'list'
-
-const fetchData = async () => {
-  loading.value = true
-  try {
-    const [bRes, aRes, sRes] = await Promise.all([
-      fetch('/api/books'),
-      fetch('/api/authors'),
-      fetch('/api/series')
-    ])
-    books.value = await bRes.json()
-    authors.value = await aRes.json()
-    series.value = await sRes.json()
-  } finally {
-    loading.value = false
-  }
-}
-
-const filteredBooks = computed(() => {
-  let list = [...books.value]
-  if (filters.value.author) list = list.filter(b => b.author === filters.value.author)
-  if (filters.value.series) list = list.filter(b => b.series?.includes(filters.value.series))
-  if (filters.value.language) list = list.filter(b => b.language === filters.value.language)
-  if (filters.value.category) list = list.filter(b => b.category === filters.value.category)
-  if (filters.value.type) list = list.filter(b => b.type === filters.value.type)
-
-  list.sort((a, b) => {
-    let valA = 0, valB = 0
-    if (sortCriteria.value === 'endDate') {
-      valA = new Date(a.endDate || 0).getTime()
-      valB = new Date(b.endDate || 0).getTime()
-    } else if (sortCriteria.value === 'pageCount') {
-      valA = a.pageCount || 0
-      valB = b.pageCount || 0
-    } else if (sortCriteria.value === 'length') {
-      valA = a.length || 0
-      valB = b.length || 0
-    }
-    return sortOrder.value === 'asc' ? valA - valB : valB - valA
-  })
-  return list
-})
-
-const handleSaveBook = async (bookData) => {
-  const method = bookData.id ? 'PUT' : 'POST'
-  const url = bookData.id ? `/api/books/${bookData.id}` : '/api/books'
-  try {
-    const res = await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(bookData)
-    })
-    if (res.ok) {
-      editingBook.value = null
-      await fetchData()
-    }
-  } catch (e) { console.error('Save failed', e) }
-}
-
-const editBook = (book) => {
-  editingBook.value = { ...book }
-  window.scrollTo({ top: 0, behavior: 'smooth' })
-}
-
-const cancelEdit = () => { editingBook.value = null }
-
-const removeBook = async (id) => {
-  if (!confirm('Are you sure?')) return
-  await fetch(`/api/books/${id}`, { method: 'DELETE' })
-  await fetchData()
-}
-
-onMounted(fetchData)
+const {
+  authors,
+  categories,
+  deleteError,
+  deletingBookId,
+  editingBook,
+  filteredBooks,
+  filters,
+  formResetToken,
+  loadError,
+  loading,
+  removeBook,
+  saveBook,
+  saveError,
+  saving,
+  series,
+  sortCriteria,
+  sortOrder,
+  viewMode,
+  cancelEdit,
+  editBook
+} = useLibrary()
 </script>
 
 <template>
@@ -103,7 +35,16 @@ onMounted(fetchData)
 
     <main>
       <section class="form-section">
-        <BookForm :initial-data="editingBook" @save="handleSaveBook" @cancel="cancelEdit" />
+        <BookForm
+          :authors="authors"
+          :initial-data="editingBook"
+          :is-saving="saving"
+          :reset-token="formResetToken"
+          :save-book="saveBook"
+          :save-error="saveError"
+          :series-options="series"
+          @cancel="cancelEdit"
+        />
       </section>
 
       <section class="controls-section">
@@ -121,14 +62,14 @@ onMounted(fetchData)
               <label>Author</label>
               <select v-model="filters.author">
                 <option value="">All Authors</option>
-                <option v-for="a in authors" :key="a" :value="a">{{ a }}</option>
+                <option v-for="author in authors" :key="author" :value="author">{{ author }}</option>
               </select>
             </div>
             <div class="control">
               <label>Series</label>
               <select v-model="filters.series">
                 <option value="">All Series</option>
-                <option v-for="s in series" :key="s" :value="s">{{ s }}</option>
+                <option v-for="seriesName in series" :key="seriesName" :value="seriesName">{{ seriesName }}</option>
               </select>
             </div>
             <div class="control">
@@ -145,6 +86,13 @@ onMounted(fetchData)
                 <option value="">All</option>
                 <option value="paper">Paper</option>
                 <option value="audio">Audio</option>
+              </select>
+            </div>
+            <div class="control">
+              <label>Category</label>
+              <select v-model="filters.category">
+                <option value="">All</option>
+                <option v-for="category in categories" :key="category" :value="category">{{ category }}</option>
               </select>
             </div>
           </div>
@@ -173,13 +121,16 @@ onMounted(fetchData)
       </section>
 
       <section class="list-section">
+        <div v-if="loadError" class="status-banner error">{{ loadError }}</div>
+        <div v-if="deleteError" class="status-banner error">{{ deleteError }}</div>
         <div v-if="loading" class="loading">Loading library...</div>
-        <BookList 
-          v-else 
-          :books="filteredBooks" 
+        <BookList
+          v-else
+          :books="filteredBooks"
+          :deleting-book-id="deletingBookId"
           :view-mode="viewMode"
-          @edit-book="editBook" 
-          @remove-book="removeBook" 
+          @edit-book="editBook"
+          @remove-book="removeBook"
         />
       </section>
     </main>
@@ -189,23 +140,23 @@ onMounted(fetchData)
 <style>
 .container { max-width: 1400px; margin: 0 auto; padding: 2rem; }
 header { text-align: center; margin-bottom: 2rem; }
-header h1 { color: #ffffff; }
+header h1 { color: var(--color-text-strong); }
 
 .form-section { 
-  background: #1e1e1e; 
+  background: var(--color-surface-2); 
   padding: 2rem; 
   border-radius: 12px; 
-  box-shadow: 0 4px 20px rgba(0,0,0,0.3); 
+  box-shadow: 0 4px 20px var(--color-shadow); 
   margin-bottom: 2rem; 
-  border: 1px solid #333;
+  border: 1px solid var(--color-border);
 }
 
 .controls-section { 
-  background: #252525; 
+  background: var(--color-surface-3); 
   padding: 1.5rem; 
   border-radius: 12px; 
   margin-bottom: 2rem; 
-  border: 1px solid #333;
+  border: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -214,13 +165,13 @@ header h1 { color: #ffffff; }
 .controls-header {
   display: flex;
   justify-content: flex-end;
-  border-bottom: 1px solid #333;
+  border-bottom: 1px solid var(--color-border);
   padding-bottom: 1rem;
 }
 
 .view-toggle {
   display: flex;
-  background: #1a1a1a;
+  background: var(--color-surface-1);
   padding: 4px;
   border-radius: 8px;
 }
@@ -230,7 +181,7 @@ header h1 { color: #ffffff; }
   border: none;
   padding: 6px 16px;
   border-radius: 6px;
-  color: #777;
+  color: var(--color-text-faint);
   font-size: 0.8rem;
   font-weight: bold;
   transition: all 0.2s;
@@ -238,8 +189,8 @@ header h1 { color: #ffffff; }
 }
 
 .view-toggle button.active {
-  background: #3498db;
-  color: white;
+  background: var(--color-primary);
+  color: var(--color-text-strong);
 }
 
 .controls-row {
@@ -250,7 +201,7 @@ header h1 { color: #ffffff; }
 
 .row-label {
   font-weight: bold;
-  color: #3498db;
+  color: var(--color-primary);
   min-width: 80px;
   font-size: 0.9rem;
   text-transform: uppercase;
@@ -264,19 +215,29 @@ header h1 { color: #ffffff; }
 }
 
 .control { display: flex; flex-direction: column; min-width: 150px; }
-.control label { font-size: 0.75rem; font-weight: bold; margin-bottom: 0.3rem; color: #777; }
+.control label { font-size: 0.75rem; font-weight: bold; margin-bottom: 0.3rem; color: var(--color-text-faint); }
 .control select { 
   padding: 0.4rem; 
   border-radius: 6px; 
-  border: 1px solid #444; 
-  background: #333;
-  color: #fff;
+  border: 1px solid var(--color-border-strong); 
+  background: var(--color-surface-5);
+  color: var(--color-text-strong);
   font-size: 0.8rem;
 }
 
-.loading { text-align: center; font-size: 1.2rem; color: #7f8c8d; padding: 4rem; }
+.status-banner {
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+  border-radius: 8px;
+  border: 1px solid var(--color-error-border);
+  background: var(--color-error-bg);
+  color: var(--color-error-text);
+}
+
+.loading { text-align: center; font-size: 1.2rem; color: var(--color-text-subtle); padding: 4rem; }
 
 @media (max-width: 800px) {
+  .container { padding: 1rem; }
   .controls-row { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
   .row-label { min-width: auto; }
 }
